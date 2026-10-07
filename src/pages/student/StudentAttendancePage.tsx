@@ -1,53 +1,137 @@
-import { useAuth } from '@/contexts/AuthContext';
-import { getStudentById } from '@/lib/store';
-import { Card, CardContent } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-
+import { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useHubData, attendancePercent } from "@/lib/store";
+import {
+  PageHeader,
+  Panel,
+  EmptyState,
+  Pagination,
+  StatusBadge,
+} from "@/components/WorkspaceUI";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 export default function StudentAttendancePage() {
   const { user } = useAuth();
-  const student = user?.studentId ? getStudentById(user.studentId) : null;
-
-  if (!student) return <p className="text-muted-foreground">Student not found</p>;
-
-  const records = [...student.attendance].sort((a, b) => b.date.localeCompare(a.date));
-  const present = records.filter(r => r.status === 'present').length;
-  const pct = records.length ? (present / records.length * 100).toFixed(1) : '0';
-
+  const { students, courses } = useHubData();
+  const student = students.find((s) => s.id === user?.studentId);
+  const [course, setCourse] = useState("");
+  const [page, setPage] = useState(1);
+  if (!student)
+    return (
+      <EmptyState
+        title="Academic record unavailable"
+        description="Contact your academic office."
+      />
+    );
+  const records = student.attendance
+    .filter((a) => !course || a.courseId === course)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const pct = attendancePercent({ ...student, attendance: records });
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-serif tracking-tight">My Attendance</h1>
-        <div className="text-right">
-          <p className="text-2xl font-serif">{pct}%</p>
-          <p className="text-xs text-muted-foreground">Overall Attendance</p>
-        </div>
+    <div className="page-stack">
+      <PageHeader
+        title="My attendance"
+        description="Track your participation and review your class records."
+      />
+      <div className="grid sm:grid-cols-3 gap-4">
+        {[
+          ["Attendance", pct === null ? "—" : `${pct.toFixed(1)}%`],
+          ["Present", records.filter((r) => r.status === "present").length],
+          [
+            "Absent / late",
+            `${records.filter((r) => r.status === "absent").length} / ${records.filter((r) => r.status === "late").length}`,
+          ],
+        ].map(([label, value]) => (
+          <Panel key={label} title={String(label)}>
+            <p className="text-3xl font-semibold">{value}</p>
+          </Panel>
+        ))}
       </div>
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Status</TableHead>
+      {pct !== null && pct < 75 && (
+        <p
+          role="status"
+          className="text-sm text-warning bg-warning/5 border border-warning/25 p-4 rounded-lg"
+        >
+          Your attendance is below 75%. Contact your teacher for guidance.
+        </p>
+      )}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {courses.map((c) => {
+          const att = attendancePercent({
+            ...student,
+            attendance: student.attendance.filter((a) => a.courseId === c.id),
+          });
+          return (
+            <div key={c.id} className="border bg-card rounded-lg p-4">
+              <p className="text-xs text-muted-foreground">{c.code}</p>
+              <p className="text-sm font-medium mt-1">{c.name}</p>
+              <p className="text-lg font-semibold mt-3">
+                {att === null ? "No records" : `${att.toFixed(1)}%`}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+      <div className="border bg-card rounded-lg overflow-hidden">
+        <div className="p-4 border-b">
+          <select
+            className="field sm:max-w-xs"
+            value={course}
+            aria-label="Filter attendance by course"
+            onChange={(e) => {
+              setCourse(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All courses and historical records</option>
+            {courses.map((c) => (
+              <option value={c.id} key={c.id}>
+                {c.code} · {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Date</TableHead>
+              <TableHead>Course</TableHead>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {records.slice((page - 1) * 10, page * 10).map((r) => (
+              <TableRow key={`${r.date}-${r.courseId ?? ""}`}>
+                <TableCell>{r.date}</TableCell>
+                <TableCell>
+                  {courses.find((c) => c.id === r.courseId)?.name ??
+                    "Historical attendance"}
+                </TableCell>
+                <TableCell>
+                  <StatusBadge>{r.status}</StatusBadge>
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {records.slice(0, 30).map(r => (
-                <TableRow key={r.date}>
-                  <TableCell>{r.date}</TableCell>
-                  <TableCell>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                      r.status === 'present' ? 'bg-success/10 text-success' :
-                      r.status === 'late' ? 'bg-warning/10 text-warning' :
-                      'bg-destructive/10 text-destructive'
-                    }`}>{r.status}</span>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+            ))}
+          </TableBody>
+        </Table>
+        {!records.length && (
+          <EmptyState
+            title="No attendance records yet"
+            description="Your teacher's recorded sessions will appear here."
+          />
+        )}
+        <Pagination total={records.length} page={page} onChange={setPage} />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Present sessions count toward attendance. Late sessions are tracked
+        separately.
+      </p>
     </div>
   );
 }

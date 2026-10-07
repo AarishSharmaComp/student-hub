@@ -1,166 +1,193 @@
-import { Student, User } from '@/types/student';
+import { useSyncExternalStore } from "react";
+import { HubData, Student } from "@/types/student";
 
-const STUDENTS_KEY = 'sms_students';
-const USERS_KEY = 'sms_users';
-
-const COURSES = ['Computer Science', 'Mathematics', 'Physics', 'Chemistry', 'Biology', 'English Literature', 'Economics', 'Mechanical Engineering'];
-const NAMES = ['Aarav Sharma', 'Priya Patel', 'Rahul Kumar', 'Sneha Gupta', 'Vikram Singh', 'Ananya Reddy', 'Arjun Nair', 'Meera Joshi', 'Rohan Das', 'Kavya Iyer', 'Aditya Mishra', 'Neha Verma', 'Siddharth Rao', 'Divya Menon', 'Karan Malhotra', 'Pooja Banerjee', 'Amit Chauhan', 'Riya Saxena', 'Harsh Agarwal', 'Shreya Pillai'];
-
-function generateId(): string {
-  return Math.random().toString(36).substr(2, 9);
-}
-
-function randomDate(start: Date, end: Date): string {
-  return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime())).toISOString().split('T')[0];
-}
-
-function getGradeLetter(pct: number): string {
-  if (pct >= 90) return 'A+';
-  if (pct >= 80) return 'A';
-  if (pct >= 70) return 'B';
-  if (pct >= 60) return 'C';
-  if (pct >= 50) return 'D';
-  return 'F';
-}
-
-function seedData() {
-  const students: Student[] = NAMES.map((name, i) => {
-    const course = COURSES[i % COURSES.length];
-    const subjects = getSubjectsForCourse(course);
-    const attendance = [];
-    const now = new Date();
-    for (let d = 0; d < 60; d++) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - d);
-      if (date.getDay() === 0 || date.getDay() === 6) continue;
-      const r = Math.random();
-      attendance.push({ date: date.toISOString().split('T')[0], status: r > 0.15 ? 'present' as const : r > 0.05 ? 'late' as const : 'absent' as const });
-    }
-    const grades = subjects.map(sub => {
-      const score = Math.floor(Math.random() * 40) + 60;
-      return { subject: sub, score, maxScore: 100, grade: getGradeLetter(score), semester: 'Spring 2026' };
-    });
-    return {
-      id: generateId(),
-      name,
-      email: name.toLowerCase().replace(/\s/g, '.') + '@university.edu',
-      phone: `+91 ${Math.floor(Math.random() * 9000000000) + 1000000000}`,
-      course,
-      year: Math.floor(Math.random() * 4) + 1,
-      enrollmentDate: randomDate(new Date(2022, 0), new Date(2025, 0)),
-      status: 'active' as const,
-      attendance,
-      grades,
-    };
-  });
-
-  const users: User[] = [
-    { id: 'admin1', username: 'admin', password: 'admin123', role: 'admin' },
-    ...students.map(s => ({
-      id: s.id,
-      username: s.email.split('@')[0],
-      password: 'student123',
-      role: 'student' as const,
-      studentId: s.id,
-    })),
-  ];
-
-  localStorage.setItem(STUDENTS_KEY, JSON.stringify(students));
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  return { students, users };
-}
-
-function getSubjectsForCourse(course: string): string[] {
-  const map: Record<string, string[]> = {
-    'Computer Science': ['Data Structures', 'Algorithms', 'Database Systems', 'Operating Systems', 'Web Development'],
-    'Mathematics': ['Calculus', 'Linear Algebra', 'Statistics', 'Number Theory', 'Discrete Math'],
-    'Physics': ['Mechanics', 'Thermodynamics', 'Electromagnetism', 'Quantum Physics', 'Optics'],
-    'Chemistry': ['Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry', 'Biochemistry', 'Analytical Chemistry'],
-    'Biology': ['Cell Biology', 'Genetics', 'Ecology', 'Microbiology', 'Anatomy'],
-    'English Literature': ['Shakespeare', 'Modern Poetry', 'Literary Theory', 'Creative Writing', 'World Literature'],
-    'Economics': ['Microeconomics', 'Macroeconomics', 'Econometrics', 'Development Economics', 'Finance'],
-    'Mechanical Engineering': ['Fluid Mechanics', 'Thermodynamics', 'Machine Design', 'Manufacturing', 'Control Systems'],
-  };
-  return map[course] || ['Subject 1', 'Subject 2', 'Subject 3', 'Subject 4', 'Subject 5'];
-}
-
-export function getStudents(): Student[] {
-  const data = localStorage.getItem(STUDENTS_KEY);
-  if (!data) return seedData().students;
-  return JSON.parse(data);
-}
-
-export function getUsers(): User[] {
-  const data = localStorage.getItem(USERS_KEY);
-  if (!data) return seedData().users;
-  return JSON.parse(data);
-}
-
-export function saveStudents(students: Student[]) {
-  localStorage.setItem(STUDENTS_KEY, JSON.stringify(students));
-}
-
-export function addStudent(student: Omit<Student, 'id' | 'attendance' | 'grades'>): Student {
-  const students = getStudents();
-  const newStudent: Student = { ...student, id: generateId(), attendance: [], grades: [] };
-  students.push(newStudent);
-  saveStudents(students);
-  // Also create user account
-  const users = getUsers();
-  users.push({
-    id: newStudent.id,
-    username: newStudent.email.split('@')[0],
-    password: 'student123',
-    role: 'student',
-    studentId: newStudent.id,
-  });
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  return newStudent;
-}
-
-export function updateStudent(id: string, data: Partial<Student>): Student | null {
-  const students = getStudents();
-  const idx = students.findIndex(s => s.id === id);
-  if (idx === -1) return null;
-  students[idx] = { ...students[idx], ...data };
-  saveStudents(students);
-  return students[idx];
-}
-
-export function deleteStudent(id: string): boolean {
-  const students = getStudents();
-  const filtered = students.filter(s => s.id !== id);
-  if (filtered.length === students.length) return false;
-  saveStudents(filtered);
-  return true;
-}
-
-export function getStudentById(id: string): Student | undefined {
-  return getStudents().find(s => s.id === id);
-}
-
-export function searchStudents(query: string): Student[] {
-  const q = query.toLowerCase();
-  return getStudents().filter(s =>
-    s.name.toLowerCase().includes(q) ||
-    s.id.includes(q) ||
-    s.email.toLowerCase().includes(q) ||
-    s.course.toLowerCase().includes(q)
+const empty: HubData = {
+  students: [],
+  courses: [],
+  enrollments: [],
+  assignments: [],
+  submissions: [],
+  announcements: [],
+  teachers: [],
+};
+let data: HubData = empty;
+let revision = 0;
+const listeners = new Set<() => void>();
+const publish = (value: HubData) => {
+  data = value;
+  listeners.forEach((fn) => fn());
+};
+export const clearData = () => {
+  revision++;
+  publish(empty);
+};
+export function useHubData() {
+  return useSyncExternalStore(
+    (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    () => data,
   );
 }
 
-export function exportStudentsCSV(): string {
-  const students = getStudents();
-  const headers = 'ID,Name,Email,Phone,Course,Year,Status,Enrollment Date,Attendance %,GPA\n';
-  const rows = students.map(s => {
-    const attPct = s.attendance.length ? ((s.attendance.filter(a => a.status === 'present').length / s.attendance.length) * 100).toFixed(1) : '0';
-    const gpa = s.grades.length ? (s.grades.reduce((sum, g) => sum + g.score, 0) / s.grades.length).toFixed(1) : '0';
-    return `${s.id},"${s.name}",${s.email},${s.phone},"${s.course}",${s.year},${s.status},${s.enrollmentDate},${attPct},${gpa}`;
-  }).join('\n');
-  return headers + rows;
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
 }
-
-export function authenticate(username: string, password: string): User | null {
-  const users = getUsers();
-  return users.find(u => u.username === username && u.password === password) || null;
+export async function api<T = { ok: boolean }>(
+  path: string,
+  method = "GET",
+  body?: unknown,
+): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`/api${path}`, {
+      method,
+      credentials: "same-origin",
+      headers:
+        method === "GET"
+          ? {}
+          : { "Content-Type": "application/json", "X-Student-Hub": "1" },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch {
+    throw new ApiError(
+      0,
+      "Unable to connect. Check your connection and try again.",
+    );
+  }
+  const result = await response
+    .json()
+    .catch(() => ({
+      message: "The service is unavailable. Please try again.",
+    }));
+  if (!response.ok) {
+    if (response.status === 401 && !path.startsWith("/auth/"))
+      window.dispatchEvent(new Event("hub-session-expired"));
+    throw new ApiError(
+      response.status,
+      result.message || "Unable to complete the request.",
+    );
+  }
+  return result as T;
+}
+export async function loadData() {
+  const current = ++revision;
+  const value = await api<HubData>("/bootstrap");
+  if (current === revision) publish(value);
+}
+export async function mutate<T = { ok: boolean }>(
+  path: string,
+  method: string,
+  body?: unknown,
+): Promise<T> {
+  const result = await api<T>(path, method, body);
+  await loadData();
+  return result;
+}
+// Read adapters retain the existing reporting modules while data comes from the authorized API.
+export function getStudents() {
+  return data.students;
+}
+export function getStudentById(id: string) {
+  return data.students.find((s) => s.id === id);
+}
+export async function addStudent(
+  student: Omit<Student, "id" | "attendance" | "grades"> & {
+    username: string;
+    password: string;
+  },
+) {
+  return mutate<Student>("/students", "POST", student);
+}
+export async function updateStudent(id: string, student: Partial<Student>) {
+  return mutate(`/students/${id}`, "PATCH", student);
+}
+export async function deleteStudent(id: string) {
+  return mutate(`/students/${id}`, "DELETE");
+}
+export function searchStudents(query: string) {
+  const q = query.trim().toLowerCase();
+  return getStudents().filter((s) =>
+    [s.name, s.id, s.email, s.course].some((v) => v.toLowerCase().includes(q)),
+  );
+}
+function csvCell(value: unknown) {
+  let s = String(value ?? "");
+  if (/^[\s]*[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return `"${s.replace(/"/g, '""')}"`;
+}
+export function exportStudentsCSV() {
+  const rows: unknown[][] = [
+    [
+      "ID",
+      "Name",
+      "Email",
+      "Phone",
+      "Department",
+      "Year",
+      "Status",
+      "Enrollment date",
+      "Attendance %",
+      "Average score %",
+    ],
+  ];
+  getStudents().forEach((s) =>
+    rows.push([
+      s.id,
+      s.name,
+      s.email,
+      s.phone,
+      s.course,
+      s.year,
+      s.status,
+      s.enrollmentDate,
+      attendancePercent(s)?.toFixed(1) ?? "",
+      averageScore(s)?.toFixed(1) ?? "",
+    ]),
+  );
+  return rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
+}
+export function attendancePercent(s: Student) {
+  return s.attendance.length
+    ? (s.attendance.filter((a) => a.status === "present").length /
+        s.attendance.length) *
+        100
+    : null;
+}
+export function averageScore(s: Student) {
+  return s.grades.length
+    ? s.grades.reduce((sum, g) => sum + (g.score / g.maxScore) * 100, 0) /
+        s.grades.length
+    : null;
+}
+export function downloadFile(
+  content: string,
+  filename: string,
+  type = "text/csv;charset=utf-8",
+) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+export function assignmentStatus(
+  assignment: { dueDate: string },
+  submission?: { score: number | null; submittedAt: string },
+) {
+  if (submission?.score != null) return "Graded";
+  if (submission)
+    return Date.parse(submission.submittedAt) > Date.parse(assignment.dueDate)
+      ? "Late"
+      : "Submitted";
+  return Date.parse(assignment.dueDate) < Date.now()
+    ? "Overdue"
+    : "Not started";
 }

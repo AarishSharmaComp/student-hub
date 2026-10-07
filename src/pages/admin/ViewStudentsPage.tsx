@@ -1,150 +1,371 @@
-import { useState } from 'react';
-import { getStudents, deleteStudent, updateStudent } from '@/lib/store';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
-import { Pencil, Trash2, Eye } from 'lucide-react';
-import { Student } from '@/types/student';
+import { useState, useEffect } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import {
+  useHubData,
+  deleteStudent,
+  attendancePercent,
+  averageScore,
+} from "@/lib/store";
+import { useAuth } from "@/contexts/AuthContext";
+import { Student } from "@/types/student";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  PageHeader,
+  EmptyState,
+  Pagination,
+  StatusBadge,
+  ConfirmDialog,
+} from "@/components/WorkspaceUI";
+import StudentForm from "@/components/StudentForm";
+import {
+  Search,
+  Plus,
+  MoreHorizontal,
+  ArrowUpDown,
+  Eye,
+  Pencil,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
 
 export default function ViewStudentsPage() {
-  const [students, setStudents] = useState(getStudents());
-  const [filter, setFilter] = useState('');
-  const [editStudent, setEditStudent] = useState<Student | null>(null);
-  const [viewStudent, setViewStudent] = useState<Student | null>(null);
-  const { toast } = useToast();
-
-  const filtered = students.filter(s =>
-    s.name.toLowerCase().includes(filter.toLowerCase()) ||
-    s.course.toLowerCase().includes(filter.toLowerCase())
-  );
-
-  const handleDelete = (id: string) => {
-    deleteStudent(id);
-    setStudents(getStudents());
-    toast({ title: 'Student Deleted' });
-  };
-
-  const handleUpdate = () => {
-    if (!editStudent) return;
-    updateStudent(editStudent.id, editStudent);
-    setStudents(getStudents());
-    setEditStudent(null);
-    toast({ title: 'Student Updated' });
-  };
-
-  const getAttendancePct = (s: Student) => {
-    if (!s.attendance.length) return 0;
-    return (s.attendance.filter(a => a.status === 'present').length / s.attendance.length) * 100;
-  };
-
+  const { students, courses, enrollments } = useHubData();
+  const { user } = useAuth();
+  const admin = user?.role === "admin";
+  const [params] = useSearchParams();
+  const [query, setQuery] = useState(params.get("q") ?? "");
+  const [debounced, setDebounced] = useState(query);
+  const [department, setDepartment] = useState("");
+  const [status, setStatus] = useState("");
+  const [sort, setSort] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(1);
+  const [editing, setEditing] = useState<Student | null>(null);
+  const [viewing, setViewing] = useState<Student | null>(null);
+  const [deleting, setDeleting] = useState<Student | null>(null);
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setDebounced(query);
+      setPage(1);
+    }, 200);
+    return () => clearTimeout(id);
+  }, [query]);
+  const filtered = students
+    .filter(
+      (s) =>
+        [s.name, s.email, s.id, s.course].some((v) =>
+          v.toLowerCase().includes(debounced.toLowerCase().trim()),
+        ) &&
+        (!department || s.course === department) &&
+        (!status || s.status === status),
+    )
+    .sort((a, b) =>
+      sort === "asc"
+        ? a.name.localeCompare(b.name)
+        : b.name.localeCompare(a.name),
+    );
+  const safePage = Math.min(page, Math.max(1, Math.ceil(filtered.length / 10)));
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-serif tracking-tight">Student Directory</h1>
-        <Input placeholder="Filter by name or course..." value={filter} onChange={e => setFilter(e.target.value)} className="max-w-xs" />
-      </div>
-
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Course</TableHead>
-                <TableHead>Year</TableHead>
-                <TableHead>Attendance</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+    <div className="page-stack">
+      <PageHeader
+        eyebrow={admin ? "Academic office" : "Your teaching roster"}
+        title="Student directory"
+        description={`${students.length} students${admin ? " across the institution" : " enrolled in your courses"}. Find a record or review academic progress.`}
+        action={
+          admin && (
+            <Button asChild>
+              <Link to="/admin/add">
+                <Plus className="size-4 mr-2" />
+                Enroll student
+              </Link>
+            </Button>
+          )
+        }
+      />
+      <section className="border rounded-lg bg-card overflow-hidden">
+        <div className="p-4 flex flex-col sm:flex-row gap-3 border-b">
+          <div className="relative flex-1">
+            <Search className="size-4 absolute left-3 top-3 text-muted-foreground" />
+            <Input
+              aria-label="Search students by name, ID, email, or department"
+              placeholder="Search name, ID, email, department…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <select
+            className="field sm:w-52"
+            aria-label="Filter by department"
+            value={department}
+            onChange={(e) => {
+              setDepartment(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All departments</option>
+            {[...new Set(students.map((s) => s.course))].sort().map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+          <select
+            className="field sm:w-36"
+            aria-label="Filter by status"
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All statuses</option>
+            {["active", "inactive", "graduated"].map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>
+                <button
+                  className="flex gap-2 items-center"
+                  onClick={() => setSort(sort === "asc" ? "desc" : "asc")}
+                  aria-label={`Sort name ${sort === "asc" ? "descending" : "ascending"}`}
+                >
+                  Student
+                  <ArrowUpDown className="size-3" />
+                </button>
+              </TableHead>
+              <TableHead>Department</TableHead>
+              <TableHead>Year</TableHead>
+              <TableHead>Attendance</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.slice((safePage - 1) * 10, safePage * 10).map((s) => (
+              <TableRow key={s.id}>
+                <TableCell>
+                  <button
+                    onClick={() => setViewing(s)}
+                    className="text-left hover:text-primary"
+                  >
+                    <span className="font-medium block">{s.name}</span>
+                    <span className="text-xs text-muted-foreground block mt-1">
+                      {s.email}
+                    </span>
+                  </button>
+                </TableCell>
+                <TableCell className="text-sm whitespace-nowrap">
+                  {s.course}
+                </TableCell>
+                <TableCell className="whitespace-nowrap">
+                  Year {s.year}
+                </TableCell>
+                <TableCell>
+                  {attendancePercent(s)?.toFixed(1) ?? "—"}
+                  {s.attendance.length > 0 ? "%" : ""}
+                </TableCell>
+                <TableCell>
+                  <StatusBadge>{s.status}</StatusBadge>
+                </TableCell>
+                <TableCell className="text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Actions for ${s.name}`}
+                      >
+                        <MoreHorizontal className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setViewing(s)}>
+                        <Eye className="size-4 mr-2" />
+                        View profile
+                      </DropdownMenuItem>
+                      {admin && (
+                        <>
+                          <DropdownMenuItem onClick={() => setEditing(s)}>
+                            <Pencil className="size-4 mr-2" />
+                            Edit student
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => setDeleting(s)}
+                          >
+                            <Trash2 className="size-4 mr-2" />
+                            Delete student
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map(s => (
-                <TableRow key={s.id}>
-                  <TableCell className="font-medium">{s.name}</TableCell>
-                  <TableCell>{s.course}</TableCell>
-                  <TableCell>Year {s.year}</TableCell>
-                  <TableCell>{getAttendancePct(s).toFixed(1)}%</TableCell>
-                  <TableCell>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                      s.status === 'active' ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
-                    }`}>{s.status}</span>
-                  </TableCell>
-                  <TableCell className="text-right space-x-1">
-                    <Button variant="ghost" size="icon" onClick={() => setViewStudent(s)}><Eye className="size-4" /></Button>
-                    <Button variant="ghost" size="icon" onClick={() => setEditStudent({ ...s })}><Pencil className="size-4" /></Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDelete(s.id)}><Trash2 className="size-4 text-destructive" /></Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {/* View Dialog */}
-      <Dialog open={!!viewStudent} onOpenChange={() => setViewStudent(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle className="font-serif">Student Details</DialogTitle></DialogHeader>
-          {viewStudent && (
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-2">
-                <div><span className="text-muted-foreground">Name:</span> {viewStudent.name}</div>
-                <div><span className="text-muted-foreground">Email:</span> {viewStudent.email}</div>
-                <div><span className="text-muted-foreground">Phone:</span> {viewStudent.phone}</div>
-                <div><span className="text-muted-foreground">Course:</span> {viewStudent.course}</div>
-                <div><span className="text-muted-foreground">Year:</span> {viewStudent.year}</div>
-                <div><span className="text-muted-foreground">Status:</span> {viewStudent.status}</div>
-                <div><span className="text-muted-foreground">Enrolled:</span> {viewStudent.enrollmentDate}</div>
-                <div><span className="text-muted-foreground">Attendance:</span> {getAttendancePct(viewStudent).toFixed(1)}%</div>
-              </div>
-              {viewStudent.grades.length > 0 && (
-                <div>
-                  <p className="font-medium mb-2 mt-4">Grades</p>
-                  <div className="space-y-1">
-                    {viewStudent.grades.map(g => (
-                      <div key={g.subject} className="flex justify-between py-1 border-b border-border last:border-0">
-                        <span>{g.subject}</span>
-                        <span className="font-medium">{g.score}/{g.maxScore} ({g.grade})</span>
-                      </div>
-                    ))}
+            ))}
+          </TableBody>
+        </Table>
+        {!filtered.length && (
+          <EmptyState
+            title={students.length ? "No matching students" : "No students yet"}
+            description={
+              students.length
+                ? "Try a different search or reset your filters."
+                : "Enrolled students will appear here."
+            }
+          />
+        )}
+        <Pagination
+          page={safePage}
+          total={filtered.length}
+          onChange={setPage}
+        />
+      </section>
+      <Dialog
+        open={!!editing}
+        onOpenChange={(v) => {
+          if (!v) setEditing(null);
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[90dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit student</DialogTitle>
+            <DialogDescription>
+              Update contact information and academic details.
+            </DialogDescription>
+          </DialogHeader>
+          {editing && (
+            <StudentForm
+              key={editing.id}
+              student={editing}
+              onSaved={() => setEditing(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+      <Sheet
+        open={!!viewing}
+        onOpenChange={(v) => {
+          if (!v) setViewing(null);
+        }}
+      >
+        <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>{viewing?.name}</SheetTitle>
+            <SheetDescription>Academic record · {viewing?.id}</SheetDescription>
+          </SheetHeader>
+          {viewing && (
+            <div className="space-y-6 mt-6">
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-5 text-sm">
+                {[
+                  ["Email", viewing.email],
+                  ["Phone", viewing.phone || "Not provided"],
+                  ["Department", viewing.course],
+                  ["Year", `Year ${viewing.year}`],
+                  ["Enrollment date", viewing.enrollmentDate],
+                  ["Status", viewing.status],
+                  [
+                    "Attendance",
+                    `${attendancePercent(viewing)?.toFixed(1) ?? "—"}${viewing.attendance.length ? "%" : ""}`,
+                  ],
+                  [
+                    "Average score",
+                    `${averageScore(viewing)?.toFixed(1) ?? "—"}${viewing.grades.length ? "%" : ""}`,
+                  ],
+                ].map(([k, v]) => (
+                  <div key={k}>
+                    <dt className="text-muted-foreground text-xs mb-1">{k}</dt>
+                    <dd className="break-words font-medium">{v}</dd>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Dialog */}
-      <Dialog open={!!editStudent} onOpenChange={() => setEditStudent(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle className="font-serif">Edit Student</DialogTitle></DialogHeader>
-          {editStudent && (
-            <div className="space-y-4">
-              <div className="space-y-2"><Label>Name</Label><Input value={editStudent.name} onChange={e => setEditStudent({ ...editStudent, name: e.target.value })} /></div>
-              <div className="space-y-2"><Label>Email</Label><Input value={editStudent.email} onChange={e => setEditStudent({ ...editStudent, email: e.target.value })} /></div>
-              <div className="space-y-2"><Label>Phone</Label><Input value={editStudent.phone} onChange={e => setEditStudent({ ...editStudent, phone: e.target.value })} /></div>
-              <div className="space-y-2">
-                <Label>Status</Label>
-                <Select value={editStudent.status} onValueChange={v => setEditStudent({ ...editStudent, status: v as any })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="graduated">Graduated</SelectItem>
-                  </SelectContent>
-                </Select>
+                ))}
+              </dl>
+              <div className="border-t pt-5">
+                <h3 className="text-sm font-semibold mb-3">Enrolled courses</h3>
+                {courses
+                  .filter((c) =>
+                    enrollments.some(
+                      (e) => e.courseId === c.id && e.studentId === viewing.id,
+                    ),
+                  )
+                  .map((c) => (
+                    <div key={c.id} className="text-sm py-2">
+                      <span className="text-muted-foreground mr-2">
+                        {c.code}
+                      </span>
+                      {c.name}
+                    </div>
+                  ))}
               </div>
-              <DialogFooter><Button onClick={handleUpdate}>Save Changes</Button></DialogFooter>
+              <div className="border-t pt-5">
+                <h3 className="text-sm font-semibold mb-3">Academic results</h3>
+                {viewing.grades.length ? (
+                  viewing.grades.map((g) => (
+                    <div
+                      key={`${g.courseId}-${g.subject}-${g.semester}`}
+                      className="flex justify-between text-sm py-3 border-b"
+                    >
+                      <div>
+                        {g.subject}
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {g.semester}
+                        </p>
+                      </div>
+                      <span>
+                        {g.score}/{g.maxScore} · {g.grade}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No results recorded yet.
+                  </p>
+                )}
+              </div>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
+      <ConfirmDialog
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        title={`Delete ${deleting?.name}?`}
+        description="Their academic record, account, attendance, grades, and submissions will be permanently removed. This cannot be undone."
+        onConfirm={async () => {
+          await deleteStudent(deleting!.id);
+          toast.success("Student deleted");
+        }}
+      />
     </div>
   );
 }

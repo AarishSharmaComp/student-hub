@@ -1,37 +1,39 @@
-import { exportStudentsCSV } from '@/lib/store';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Download } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-
+import { exportStudentsCSV, downloadFile, useHubData } from "@/lib/store";
+import { Button } from "@/components/ui/button";
+import { PageHeader, Panel } from "@/components/WorkspaceUI";
+import { Download } from "lucide-react";
+import { toast } from "sonner";
 export default function ExportPage() {
-  const { toast } = useToast();
-
-  const handleExport = () => {
-    const csv = exportStudentsCSV();
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `students_export_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: 'Export Complete', description: 'CSV file has been downloaded' });
-  };
-
+  const { students } = useHubData();
   return (
-    <div className="space-y-6 max-w-lg">
-      <h1 className="text-3xl font-serif tracking-tight">Export Data</h1>
-      <Card>
-        <CardContent className="pt-6 text-center space-y-4">
-          <Download className="size-12 mx-auto text-muted-foreground" />
-          <div>
-            <p className="font-medium">Export Student Data</p>
-            <p className="text-sm text-muted-foreground">Download all student records as a CSV file including attendance and grade information.</p>
-          </div>
-          <Button onClick={handleExport} className="w-full">Download CSV</Button>
-        </CardContent>
-      </Card>
+    <div className="page-stack max-w-3xl">
+      <PageHeader
+        title="Export academic records"
+        description="Download the student records you are authorized to access."
+      />
+      <Panel
+        title="Student directory · CSV"
+        description={`${students.length} records available`}
+      >
+        <p className="text-sm text-muted-foreground mb-5 leading-relaxed">
+          Includes student information, attendance percentage, and average
+          normalized course scores. Missing academic data is left blank.
+          Exported text is escaped for safe spreadsheet use.
+        </p>
+        <Button
+          onClick={() => {
+            downloadFile(
+              exportStudentsCSV(),
+              `students-${new Date().toISOString().slice(0, 10)}.csv`,
+            );
+            toast.success("Student records downloaded");
+          }}
+          disabled={!students.length}
+        >
+          <Download className="size-4 mr-2" />
+          Download CSV
+        </Button>
+      </Panel>
     </div>
   );
 }
